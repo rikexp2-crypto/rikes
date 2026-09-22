@@ -1,0 +1,3 @@
+infra/.env
+*.log
+node_modules/
