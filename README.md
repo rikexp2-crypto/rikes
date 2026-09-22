@@ -1,9 +1,10 @@
-# Rikes — Central de Automação Omnichannel (Graficaplus)
+# Rikes — Central de Automação Omnichannel (Gráfica Plus / Artereioficial)
 
-Sistema de atendimento e automação com IA que unifica **Site (Graficaplus)**,
-**WhatsApp**, **Instagram Direct** e **Meta Ads** em um único hub de
-conversas, com CRM em Kanban, agente de IA para orçamentos automáticos e
-notificações de status de pedido em tempo real.
+Sistema de atendimento e automação com IA que unifica **WhatsApp**,
+**Instagram Direct**, **Meta Ads** e o catálogo da **Gráfica Plus**
+(plataforma sem Webhook/API própria — ver Plano B na arquitetura) em um
+único hub de conversas, com CRM em Kanban, agente de IA para orçamentos
+automáticos e notificações de status de pedido.
 
 ## Documentação
 
@@ -21,5 +22,5 @@ notificações de status de pedido em tempo real.
 
 ## Status
 
-**Fase 1** em andamento: ingestão de webhooks do Graficaplus + WhatsApp
-Cloud API + estrutura de banco unificado.
+**Fase 1** em andamento: captura de leads via WhatsApp Cloud API (Plano B —
+a Gráfica Plus não tem Webhook/API) + estrutura de banco unificado.

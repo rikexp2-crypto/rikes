@@ -1,0 +1,153 @@
+{
+  "name": "WhatsApp - Inbound Lead Capture (Plano B, sem webhook Grafica Plus)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "webhook/whatsapp",
+        "authentication": "none",
+        "options": {}
+      },
+      "id": "2a2b2c2d-0001-4000-8000-000000000001",
+      "name": "Webhook - WhatsApp Cloud API",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [200, 300],
+      "webhookId": "whatsapp-inbound"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Payload padrao do WhatsApp Cloud API (webhook 'messages').\n// Ignora eventos que nao sejam mensagem de texto recebida (status, etc).\nconst body = $input.item.json.body;\nconst entry = body.entry?.[0];\nconst change = entry?.changes?.[0]?.value;\nconst message = change?.messages?.[0];\n\nif (!message || message.type !== 'text') {\n  return { json: { skip: true } };\n}\n\nconst contact = change.contacts?.[0];\nconst telefone = `+${message.from}`;\nconst nome = contact?.profile?.name || null;\nconst texto = message.text.body;\n\n// Extrai produto mencionado no texto pre-preenchido do botao do catalogo\n// da Grafica Plus (ex: \"Ola, quero orcamento de Cartao de Visita\").\n// Fallback: null -- a IA pergunta o produto na conversa se nao identificar.\nconst produtoMatch = texto.match(/or[cç]amento de (.+)/i);\nconst produto = produtoMatch ? produtoMatch[1].trim() : null;\n\nreturn {\n  json: {\n    skip: false,\n    cliente: { nome, telefone, instagram: null, email: null },\n    mensagem: { texto, wa_message_id: message.id },\n    pedido_sugestao: { produto },\n    origem: { canal: 'whatsapp_catalogo', utm_source: 'catalogo_organico' },\n    timestamp: new Date().toISOString()\n  }\n};"
+      },
+      "id": "2a2b2c2d-0002-4000-8000-000000000002",
+      "name": "Parsear Mensagem WhatsApp",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [420, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.skip }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "notEquals" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "2a2b2c2d-0003-4000-8000-000000000003",
+      "name": "IF - Mensagem valida?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [640, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT find_or_create_contact('whatsapp'::channel_type, $1, NULL, $2) AS contact_id",
+        "options": {
+          "queryReplacement": "={{ [$json.cliente.telefone, $json.cliente.email] }}"
+        }
+      },
+      "id": "2a2b2c2d-0004-4000-8000-000000000004",
+      "name": "Postgres - Find/Create Contact",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [860, 220],
+      "credentials": {
+        "postgres": { "id": "rikes-postgres", "name": "Rikes Postgres" }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO messages (contact_id, channel, direction, sender, content)\nVALUES ($1, 'whatsapp', 'inbound', 'cliente', $2)",
+        "options": {
+          "queryReplacement": "={{ [$json.contact_id, $('Parsear Mensagem WhatsApp').item.json.mensagem.texto] }}"
+        }
+      },
+      "id": "2a2b2c2d-0005-4000-8000-000000000005",
+      "name": "Postgres - Log Mensagem",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1080, 160],
+      "credentials": {
+        "postgres": { "id": "rikes-postgres", "name": "Rikes Postgres" }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO deals (contact_id, produto, stage, fila)\nSELECT $1, $2, 'lead_novo', 'vendas'\nWHERE NOT EXISTS (\n  SELECT 1 FROM deals WHERE contact_id = $1 AND stage NOT IN ('entregue', 'perdido')\n)",
+        "options": {
+          "queryReplacement": "={{ [$json.contact_id, $('Parsear Mensagem WhatsApp').item.json.pedido_sugestao.produto] }}"
+        }
+      },
+      "id": "2a2b2c2d-0006-4000-8000-000000000006",
+      "name": "Postgres - Abrir Card Kanban (Lead Novo)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1080, 300],
+      "credentials": {
+        "postgres": { "id": "rikes-postgres", "name": "Rikes Postgres" }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO lead_sources (contact_id, utm_source)\nVALUES ($1, $2)",
+        "options": {
+          "queryReplacement": "={{ [$json.contact_id, $('Parsear Mensagem WhatsApp').item.json.origem.utm_source] }}"
+        }
+      },
+      "id": "2a2b2c2d-0007-4000-8000-000000000007",
+      "name": "Postgres - Registrar Origem",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1080, 440],
+      "credentials": {
+        "postgres": { "id": "rikes-postgres", "name": "Rikes Postgres" }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://graph.facebook.com/v20.0/' + $env.WHATSAPP_PHONE_NUMBER_ID + '/messages/' + $('Parsear Mensagem WhatsApp').item.json.mensagem.wa_message_id }}",
+        "note": "Encaminha a conversa para o Chatwoot (canal WhatsApp ja conectado) para o Agente de IA / atendente assumirem dali em diante. Configuracao real de roteamento fica no inbox do Chatwoot."
+      },
+      "id": "2a2b2c2d-0008-4000-8000-000000000008",
+      "name": "-- Chatwoot assume a partir daqui (via inbox nativo) --",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1300, 300]
+    }
+  ],
+  "connections": {
+    "Webhook - WhatsApp Cloud API": {
+      "main": [[{ "node": "Parsear Mensagem WhatsApp", "type": "main", "index": 0 }]]
+    },
+    "Parsear Mensagem WhatsApp": {
+      "main": [[{ "node": "IF - Mensagem valida?", "type": "main", "index": 0 }]]
+    },
+    "IF - Mensagem valida?": {
+      "main": [[
+        { "node": "Postgres - Find/Create Contact", "type": "main", "index": 0 }
+      ], []]
+    },
+    "Postgres - Find/Create Contact": {
+      "main": [[
+        { "node": "Postgres - Log Mensagem", "type": "main", "index": 0 },
+        { "node": "Postgres - Abrir Card Kanban (Lead Novo)", "type": "main", "index": 0 },
+        { "node": "Postgres - Registrar Origem", "type": "main", "index": 0 }
+      ]]
+    },
+    "Postgres - Abrir Card Kanban (Lead Novo)": {
+      "main": [[{ "node": "-- Chatwoot assume a partir daqui (via inbox nativo) --", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" }
+}
